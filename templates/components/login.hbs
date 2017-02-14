@@ -1,0 +1,17 @@
+{{#if isLogged}}
+  {{i18n 'Your are logged. Logout first'}}
+{{else}}
+
+  {{i18n 'Username'}}: <input type="text" id="login"> <br> {{i18n 'Password'}}: <input type="password" id="password"><br>
+  <input type="submit" id='loginbutton' value="{{i18n 'Login'}}"> {{i18n 'New here?'}} <a href="#login" id='registerlink'>{{i18n 'Register Here!'}}</a>
+  {{#if registerMode}}
+    <h2>{{i18n 'New user'}}</h2>
+    <div id="registration-form">
+      {{i18n 'Username'}}: <input type="text" id="registerusername">
+      {{#i18n}}{{registerErrors.username}}{{/i18n}}<br> {{i18n 'Password'}}: <input type="password" id="registerpassword">
+      {{#i18n}}{{registerErrors.password}}{{/i18n}}<br>
+      <input type="submit" id='registerbutton' value="{{i18n 'Create user'}}">
+    </div>
+  {{/if}}
+
+{{/if}}

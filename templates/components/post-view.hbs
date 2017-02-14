@@ -1,0 +1,19 @@
+<h2>{{selectedPost.title}}</h2> {{i18n 'by'}} {{selectedPost.author_id}}
+<div>{{selectedPost.content}}</div>
+<div id="comments">
+  <h3>{{i18n 'Comments'}}</h3>
+  {{#each selectedPost.comments}}
+    <p>{{author}} commented</p>
+    <p>
+      {{content}}
+    </p>
+    <hr>
+  {{/each}}
+</div>
+{{#if isLogged}}
+  <h2>{{i18n 'Leave a comment'}}</h2>
+  <div>
+    <textarea rows="4" cols="20" id="commentcontent"></textarea>{{commentErrors.content}}
+  </div>
+  <button id="savecommentbutton">{{i18n 'Save comment'}}</button>
+{{/if}}

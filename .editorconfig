@@ -1,0 +1,18 @@
+root = true
+
+[*]
+end_of_line = lf
+insert_final_newline = true
+
+[*.css]
+indent_style = space
+indent_size = 2
+
+[*.{html,hbs}]
+indent_style = space
+indent_size = 2
+
+[*.js]
+charset = utf-8
+indent_style = space
+indent_size = 2
