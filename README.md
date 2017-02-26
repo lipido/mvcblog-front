@@ -2,10 +2,12 @@ mvcblog-front
 =============
 A "single-page" application for
 [mvcblog](https://github.com/lipido/mvcblog) based on
-[fronty.js](https://github.com/lipido/fronty.js), for educational purposes.
+[fronty.js](https://github.com/lipido/fronty.js),
+[jQuery.js](https://jquery.com/) and [Handlebars](http://handlebarsjs.com/), for
+educational purposes.
 
-This front-end uses JavaScript and AJAX and interacts with the backend via
-its REST API.
+This front-end of [mvcblog](https://github.com/lipido/mvcblog) uses JavaScript
+and AJAX and interacts with the backend via its REST API.
 
 ## Architecture overview
 
@@ -17,7 +19,7 @@ artifacts are:
   `PostsModel` and `UserModel`.
 - Components, which are JavaScript objects in charge of rendering different
   parts of the application.
-- Templates in [Handlebars](http://handlebarsjs.com/) language containing the
+- Renderers in [Handlebars](http://handlebarsjs.com/) language containing the
   HTML fragments separated from JavaScript.
 
 In addition, this application includes a library for Internationalization (I18n)

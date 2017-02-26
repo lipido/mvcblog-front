@@ -7,22 +7,23 @@
   Component class
   
   A component is an object whose responsibilities are:
-    - Render in HTML a given model object by using a template
+    - Render into HTML a given model object by using a renderer function
     - Listen for changes in model object, updating the HTML
     - Registering event listeners in its HTML nodes
   
   In order to create a Component, you can inherit from this class and use its
-constructor, which takes the compiled Handlebars HTML template, the model
+constructor, which takes a renderer function, the model
 instance and a root node id for placing its rendered contents.
 */
 class Component {
 
-  constructor(template, model, htmlNodeId) {
+  constructor(modelRenderer, model, htmlNodeId) {
     this.htmlNodeId = htmlNodeId;
-    this.template = template;
+    this.modelRenderer = modelRenderer;
 
-
-    if (model instanceof Model) {
+    if (!model) {
+      this.models = [];
+    } else if (model instanceof Model) {
       this.models = [model];
     } else if (model instanceof Array) {
       model.forEach((model) => {
@@ -34,6 +35,7 @@ class Component {
     } else {
       throw 'Component [' + this.htmlNodeId + ']: the model must inherit Model';
     }
+
 
     this.stopped = true;
 
@@ -127,7 +129,7 @@ class Component {
     this._doRender((htmlContents) => {
       var componentNode = document.getElementById(this.htmlNodeId)
       if (componentNode) {
-        $(componentNode).html(htmlContents);
+        document.getElementById(componentNode).innerHTML = htmlContents;
       } else {
         console.log('Component [#' + this.htmlNodeId + ']: node not found to render: ' + this.htmlNodeId);
       }
@@ -138,7 +140,8 @@ class Component {
     this._doRender((htmlContents) => {
       var elem = document.createElement('div');
       elem.innerHTML = htmlContents;
-      $(rootNode).html($(elem).find(rootNode).html());
+      document.getElementById(rootNode).innerHTML = 
+        elem.getElementById(rootNode).innerHTML;
     });
   }
 
@@ -149,7 +152,7 @@ class Component {
 
     this.beforeRender();
 
-    var htmlContents = this._renderTemplate();
+    var htmlContents = this._renderModel();
 
     callback(htmlContents);
 
@@ -216,13 +219,13 @@ class Component {
   }
 
   // "private" methods
-  _renderTemplate() {
+  _renderModel() {
     // merge all models into one object
     var context = {};
     this.models.forEach((model) => {
       context = Object.assign(context, model);
     });
-    return this.template(context);
+    return this.modelRenderer(context);
 
   }
 
@@ -246,7 +249,8 @@ class Component {
   }
 
   _addEventListener(nodesQuery, eventType, callback) {
-    $(nodesQuery).each((index, element) => {
+    
+    document.querySelectorAll(nodesQuery).forEach((element) => {
       element.addEventListener(eventType, callback);
       this._listeners.push({
         node: element,
@@ -281,26 +285,50 @@ class Component {
     defaultRoute: 'posts'
   }
 
-  Calling run() will try to go to the page indicated by the hash, rendering
-  its template.
+  Calling start() will try to go to the page indicated by the hash, rendering
+  its contents.
 */
 class RouterComponent extends Component {
-  constructor(rootHtmlId, layoutTemplate, routeContentsHtmlId, model) {
+  constructor(rootHtmlId, modelRenderer, routeContentsHtmlId, model) {
+    
+    // add a routerModel to the given model(s), creating an array
+    var routerModel = new Model('RouterModel');
+    
+    if (model instanceof Array) {
+      model.push(routerModel)
+    } else if (model != null) {
+      model = [routerModel, model];
+    } else {
+      model = routerModel;
+    }
+    
+    super(modelRenderer, model, rootHtmlId);
 
-    super(layoutTemplate, model != null ? model : [], rootHtmlId);
-
+    this.routerModel = routerModel;
+    this.routes = {};
+    
+    this.routerModel.currentPage = this._calculateCurrentPage();
+    
     this.pageHtmlId = routeContentsHtmlId;
-    Handlebars.registerHelper('currentPage', () => {
-      return this.getCurrentPage();
-    });
-
+    
     window.addEventListener('hashchange', () => {
-      this._goToCurrentPage();
+      console.log("Router: page changed");
+      this.routerModel.set( () => {
+        this.routerModel.currentPage = this._calculateCurrentPage();
+      }
+    );
     });
   }
 
+  update(model) {
+    super.update(model);
+    if (model == this.routerModel) {
+      this._goToCurrentPage();
+    }
+  }
   setRouterConfig(routerConfig) {
     this.routes = routerConfig;
+    this.routerModel.currentPage = this._calculateCurrentPage();
   }
 
   onStart() {
@@ -312,9 +340,13 @@ class RouterComponent extends Component {
   }
 
   getCurrentPage() {
-    return window.location.hash.replace(/#([^\\?]*).*/, "$1");
+    return this.routerModel.currentPage;
   }
 
+  getRouterModel() {
+    return this.routerModel;
+  }
+  
   getRouteQueryParam(name) {
     var queryString = window.location.hash.replace(/#[^\?]*(\?.*)/, "$1");
     name = name.replace(/[\[\]]/g, "\\$&");
@@ -325,16 +357,20 @@ class RouterComponent extends Component {
     return decodeURIComponent(results[2].replace(/\+/g, " "));
   }
 
-  _goToCurrentPage() {
-    var currentPage = this.getCurrentPage();
-    console.log('Router: current page: ' + currentPage);
+  _calculateCurrentPage() {
+    var currentPage = window.location.hash.replace(/#([^\\?]*).*/, "$1");
     if (currentPage.length == 0 && this.routes.defaultRoute) {
       currentPage = this.routes.defaultRoute;
     }
+    return currentPage;
+    
+  }
+  _goToCurrentPage() {
+    var currentPage = this.getCurrentPage();
 
     if (currentPage) {
 
-      // get page template and update the main body element
+      // get page component and update the main body element
       if (currentPage in this.routes) {
         if (this.routes[currentPage].title) {
           document.title = this.routes[currentPage].title;

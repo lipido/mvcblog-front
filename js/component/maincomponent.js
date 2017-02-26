@@ -30,7 +30,10 @@ class MainComponent extends RouterComponent {
       },
       defaultRoute: 'posts'
     });
-
+    
+    Handlebars.registerHelper('currentPage', () => {
+          return super.getCurrentPage();
+    });
 
     var userService = new UserService();
     this.addChildComponent(this._createUserBarComponent(userModel, userService));
@@ -58,7 +61,7 @@ class MainComponent extends RouterComponent {
   }
 
   _createLanguageComponent() {
-    var languageComponent = new Component(Handlebars.templates.language, [], 'languagecontrol');
+    var languageComponent = new Component(Handlebars.templates.language, this.routerModel, 'languagecontrol');
     // language change links
     languageComponent.addEventListener('click', '#englishlink', () => {
       I18n.changeLanguage('default');
