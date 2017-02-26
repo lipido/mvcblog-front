@@ -25,14 +25,6 @@ class PostsComponent extends Component {
       this.router.goToPage('edit-post?id=' + postId);
     });
 
-
-    this.addEventListener('click', '#closebutton', () => {
-      setTimeout(()=>postsModel.set((model) => {
-        model.posts.push(model.posts[0])
-      }), 3000);
-
-    });
-
   }
 
   onStart() {
