@@ -17,9 +17,13 @@ instance and a root node id for placing its rendered contents.
 */
 class Component {
 
-  constructor(modelRenderer, model, htmlNodeId) {
+  constructor(modelRenderer, model, htmlNodeId, childTags) {
     this.htmlNodeId = htmlNodeId;
     this.modelRenderer = modelRenderer;
+    if (!childTags) {
+      childTags = [];
+    }
+    this.childTags = childTags;
 
     if (!model) {
       this.models = [];
@@ -57,6 +61,7 @@ class Component {
     this.htmlNodeId = htmlNodeId;
   }
 
+  // child management
   addChildComponent(component) {
     this.childComponents.push(component);
     this.childComponentIds[component.getHtmlNodeId()] = component;
@@ -68,12 +73,30 @@ class Component {
 
   removeChildComponent(component) {
     var index = this.childComponents.indexOf(component);
+
     if (index != -1) {
-      this.childComponents.slice(index, 1);
+      this.childComponents[index].stop();
+      this.childComponents.splice(index, 1);
+      delete this.childComponentIds[component.getHtmlNodeId()];
     }
     this.render();
   }
 
+  getChildComponents() {
+    return this.childComponents;
+  }
+
+  getChildComponentsById() {
+    return this.childComponentIds;
+  }
+
+  getChildComponent(id) {
+    return this.childComponentIds[id];
+  }
+  // -------------
+
+
+  // rendering
   renderModelChanges() {
     this._doRender((htmlContents) => {
 
@@ -140,25 +163,9 @@ class Component {
     this._doRender((htmlContents) => {
       var elem = document.createElement('div');
       elem.innerHTML = htmlContents;
-      document.getElementById(rootNode).innerHTML = 
+      document.getElementById(rootNode).innerHTML =
         elem.getElementById(rootNode).innerHTML;
     });
-  }
-
-  _doRender(callback) {
-    if (this.stopped || !this.htmlNodeId || document.getElementById(this.htmlNodeId) === null) {
-      return;
-    }
-
-    this.beforeRender();
-
-    var htmlContents = this._renderModel();
-
-    callback(htmlContents);
-
-    this._updateEventListeners();
-
-    this.afterRender();
   }
 
   update(model) {
@@ -166,6 +173,7 @@ class Component {
     this.render();
   }
 
+  // lifecycle management
   stop() {
     if (this.stopped == false) {
       this.models.forEach((model) => {
@@ -194,8 +202,9 @@ class Component {
       });
     }
     this.onStart();
-
   }
+
+  // event-listener management
 
   addEventListener(eventType, nodesQuery, callback) {
     if (!(nodesQuery in this.eventListeners)) {
@@ -211,6 +220,7 @@ class Component {
   }
 
   // Hooks
+
   beforeRender() { //hook
   }
   afterRender() { //hook
@@ -219,14 +229,92 @@ class Component {
   }
 
   // "private" methods
-  _renderModel() {
-    // merge all models into one object
+  _doRender(callback) {
+    if (this.rendering === true) {
+      //avoid recursion
+      return;
+    }
+
+    this.rendering = true;
+    if (this.stopped || !this.htmlNodeId || document.getElementById(this.htmlNodeId) === null) {
+      this.rendering = false;
+      return;
+    }
+
+    this.beforeRender();
+
+    var htmlContents = this._renderModel();
+
+    callback(htmlContents);
+
+    this._updateEventListeners();
+
+    this._createTagChildComponents();
+
+    this.afterRender();
+
+    this.rendering = false;
+  }
+
+  _createTagChildComponents() {
+
+    if (!this.childComponentsByTag) {
+      this.childComponentsByTag = {};
+    }
+
+    this.childTags.forEach((childTag) => {
+      if (!this.childComponentsByTag[childTag]) {
+        this.childComponentsByTag[childTag] = [];
+      }
+      var childTagElements = document.getElementsByTagName(childTag);
+      var childIds = [];
+      for (var i = 0; i < childTagElements.length; i++) {
+        var childTagElement = childTagElements[i];
+        var oneModelObject = this._mergeModelInOneObject();
+        var modelItem = eval('oneModelObject.'+childTagElement.getAttribute('model'));
+        var itemId = childTagElement.getAttribute('id');
+
+        if (!this.getChildComponent(itemId)) {
+          var component = this.createChildComponent(childTag, modelItem, itemId);
+          if (component) {
+            component.setHtmlNodeId(itemId);
+            childIds.push(itemId);
+            this.addChildComponent(component);
+            this.childComponentsByTag[childTag].push(component);
+          }
+        }
+      }
+      
+      for (var i = this.childComponentsByTag[childTag].length -1; i >= 0; i--) {
+        var childComponent = this.childComponentsByTag[childTag][i];
+        if (childIds.indexOf(childComponent.getHtmlNodeId())=== -1) {
+          this.removeChildComponent(childComponent);
+          this.childComponentsByTag[childTag].splice(i, 1);
+        }
+      }
+      
+    });
+  }
+
+  createChildComponent(tagName, model, id) {
+    var constructorFunction = eval(''+tagName);
+    
+    if (constructorFunction instanceof Function) {
+      return new constructorFunction(model, id);
+    }
+  }
+  
+  _mergeModelInOneObject() {
     var context = {};
     this.models.forEach((model) => {
       context = Object.assign(context, model);
     });
-    return this.modelRenderer(context);
-
+    return context;
+  }
+  
+  _renderModel() {
+    // merge all models into one object
+    return this.modelRenderer(this._mergeModelInOneObject());
   }
 
   _updateEventListeners() {
@@ -249,7 +337,7 @@ class Component {
   }
 
   _addEventListener(nodesQuery, eventType, callback) {
-    
+
     document.querySelectorAll(nodesQuery).forEach((element) => {
       element.addEventListener(eventType, callback);
       this._listeners.push({
@@ -290,10 +378,10 @@ class Component {
 */
 class RouterComponent extends Component {
   constructor(rootHtmlId, modelRenderer, routeContentsHtmlId, model) {
-    
+
     // add a routerModel to the given model(s), creating an array
     var routerModel = new Model('RouterModel');
-    
+
     if (model instanceof Array) {
       model.push(routerModel)
     } else if (model != null) {
@@ -301,22 +389,21 @@ class RouterComponent extends Component {
     } else {
       model = routerModel;
     }
-    
+
     super(modelRenderer, model, rootHtmlId);
 
     this.routerModel = routerModel;
     this.routes = {};
-    
+
     this.routerModel.currentPage = this._calculateCurrentPage();
-    
+
     this.pageHtmlId = routeContentsHtmlId;
-    
+
     window.addEventListener('hashchange', () => {
       console.log("Router: page changed");
-      this.routerModel.set( () => {
+      this.routerModel.set(() => {
         this.routerModel.currentPage = this._calculateCurrentPage();
-      }
-    );
+      });
     });
   }
 
@@ -346,7 +433,7 @@ class RouterComponent extends Component {
   getRouterModel() {
     return this.routerModel;
   }
-  
+
   getRouteQueryParam(name) {
     var queryString = window.location.hash.replace(/#[^\?]*(\?.*)/, "$1");
     name = name.replace(/[\[\]]/g, "\\$&");
@@ -363,7 +450,7 @@ class RouterComponent extends Component {
       currentPage = this.routes.defaultRoute;
     }
     return currentPage;
-    
+
   }
   _goToCurrentPage() {
     var currentPage = this.getCurrentPage();
@@ -390,10 +477,10 @@ class RouterComponent extends Component {
         this.routes[currentPage].component.start();
 
       } else {
-        console.log('router undefined page ' + currentPage);
+        console.log('Router undefined page ' + currentPage);
       }
     } else {
-      console.log('router: no default page defined');
+      console.log('Router: no default page defined');
     }
   }
 }
