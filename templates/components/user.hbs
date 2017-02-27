@@ -1,6 +1,8 @@
-{{#if isLogged}}
-  {{i18n 'Hello'}} {{currentUser}}
-  <input type="button" id='logoutbutton' value="{{i18n 'logout'}}"></input>
-{{else}}
-  <a href='#login'>{{i18n 'Login'}}</a>
-{{/if}}
+<div>
+  {{#if isLogged}}
+    {{i18n 'Hello'}} {{currentUser}}
+    <input type="button" id='logoutbutton' value="{{i18n 'logout'}}"></input>
+  {{else}}
+    <a href='#login'>{{i18n 'Login'}}</a>
+  {{/if}}
+</div>

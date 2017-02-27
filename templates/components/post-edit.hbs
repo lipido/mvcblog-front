@@ -1,7 +1,9 @@
-{{i18n 'Title'}}:<input type="text" id="title" value="{{selectedPost.title}}">
-{{#i18n}}{{errors.title}}{{/i18n}}<br> {{i18n 'Content'}}:
-<br>
-<textarea id="content" rows="20" cols="80">{{selectedPost.content}}</textarea>
-{{#i18n}}{{errors.content}}{{/i18n}}
-<br>
-<input type="button" id="savebutton" value="{{i18n 'Save'}}"></input>
+<div>
+  {{i18n 'Title'}}:<input type="text" id="title" value="{{selectedPost.title}}">
+  {{#i18n}}{{errors.title}}{{/i18n}}<br> {{i18n 'Content'}}:
+  <br>
+  <textarea id="content" rows="20" cols="80">{{selectedPost.content}}</textarea>
+  {{#i18n}}{{errors.content}}{{/i18n}}
+  <br>
+  <input type="button" id="savebutton" value="{{i18n 'Save'}}"></input>
+</div>
