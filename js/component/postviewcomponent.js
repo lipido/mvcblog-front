@@ -1,4 +1,4 @@
-class PostViewComponent extends Component {
+class PostViewComponent extends ModelComponent {
   constructor(postsModel, userModel, router) {
     super(Handlebars.templates.postview, [postsModel, userModel]);
 

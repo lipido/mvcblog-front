@@ -42,7 +42,7 @@ class MainComponent extends RouterComponent {
   }
 
   _createUserBarComponent(userModel, userService) {
-    var userbar = new Component(Handlebars.templates.user, userModel, 'userbar');
+    var userbar = new ModelComponent(Handlebars.templates.user, userModel, 'userbar');
 
     userbar.addEventListener('click', '#logoutbutton', () => {
       userModel.logout();
@@ -61,7 +61,7 @@ class MainComponent extends RouterComponent {
   }
 
   _createLanguageComponent() {
-    var languageComponent = new Component(Handlebars.templates.language, this.routerModel, 'languagecontrol');
+    var languageComponent = new ModelComponent(Handlebars.templates.language, this.routerModel, 'languagecontrol');
     // language change links
     languageComponent.addEventListener('click', '#englishlink', () => {
       I18n.changeLanguage('default');

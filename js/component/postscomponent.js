@@ -1,4 +1,4 @@
-class PostsComponent extends Component {
+class PostsComponent extends ModelComponent {
   constructor(postsModel, userModel, router) {
     super(Handlebars.templates.poststable, [postsModel, userModel]);
 

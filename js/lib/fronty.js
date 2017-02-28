@@ -3,44 +3,14 @@
   author: lipido
 */
 
-/* 
-  Component class
-  
-  A component is an object whose responsibilities are:
-    - Render into HTML a given model object by using a renderer function
-    - Listen for changes in model object, updating the HTML
-    - Registering event listeners in its HTML nodes
-  
-  In order to create a Component, you can inherit from this class and use its
-constructor, which takes a renderer function, the model
-instance and a root node id for placing its rendered contents.
-*/
 class Component {
-
-  constructor(modelRenderer, model, htmlNodeId, childTags) {
+  constructor(renderer, htmlNodeId, childTags) {
     this.htmlNodeId = htmlNodeId;
-    this.modelRenderer = modelRenderer;
     if (!childTags) {
       childTags = [];
     }
     this.childTags = childTags;
-
-    if (!model) {
-      this.models = [];
-    } else if (model instanceof Model) {
-      this.models = [model];
-    } else if (model instanceof Array) {
-      model.forEach((model) => {
-        if (!model instanceof Model) {
-          throw 'Component [' + this.htmlNodeId + ']: the model must inherit Model';
-        }
-      });
-      this.models = model;
-    } else {
-      throw 'Component [' + this.htmlNodeId + ']: the model must inherit Model';
-    }
-
-
+    this.renderer = renderer;
     this.stopped = true;
 
     // requested event listeners by HTML query
@@ -50,10 +20,10 @@ class Component {
 
     this.childComponents = [];
     this.childComponentIds = {};
-
   }
 
   getHtmlNodeId() {
+    console.log('---->' + this.htmlNodeId);
     return this.htmlNodeId;
   }
 
@@ -93,37 +63,36 @@ class Component {
   getChildComponent(id) {
     return this.childComponentIds[id];
   }
-  // -------------
-
-
   // rendering
   renderModelChanges() {
     this._doRender((htmlContents) => {
 
       // save child component subtrees
-      var childComponentNodes = {};
-      this.childComponents.forEach((component) => {
-        var componentId = component.getHtmlNodeId();
-        if (document.getElementById(componentId) != null) {
-          childComponentNodes[componentId] = document.getElementById(componentId);
+      var savedChildNodes = {};
+      this.childComponents.forEach((childComponent) => {
+        var childId = childComponent.getHtmlNodeId();
+        
+        if (this._getChildNode(childId) != null) {
+          savedChildNodes[childId] = this._getChildNode(childId);
         }
       });
 
       // compare
-      var componentNode = document.getElementById(this.htmlNodeId)
+      var currentTree = this._getComponentNode();
 
-    //  var elem = componentNode.cloneNode(false); //clone only attributes, no childs
-      
-      var elem = document.createElement('div');
-      
-      elem.innerHTML = htmlContents;
 
-      elem = elem.childNodes[0];
-      if (elem.nodeType === Node.ELEMENT_NODE && elem.getAttribute('id') == null) {
-        elem.setAttribute('id', this.getHtmlNodeId());
+      var newTree = document.createElement('div'); //dummy element
+      newTree.innerHTML = htmlContents;
+      if (newTree.childNodes.length > 1) {
+        throw 'Rendering function MUST return a tree with a single root element';
       }
-      
-      var patches = TreeComparator.diff(componentNode, elem, (node1, node2) => {
+      newTree = newTree.childNodes[0]; //move down to the root node of the new tree
+
+      if (newTree.nodeType === Node.ELEMENT_NODE && newTree.getAttribute('id') == null) {
+        newTree.setAttribute('id', this.getHtmlNodeId());
+      }
+
+      var patches = TreeComparator.diff(currentTree, newTree, (node1, node2) => {
         // skip comparisons on our child's Component slots (child components are the responsible ones) 
         // the parent component, once re-rendered, will see its child slots empty again, but
         // we don't want to replace those slot with the empty one, so we skip those patches
@@ -135,22 +104,21 @@ class Component {
           // we want to replace a component slot with another stuff, do complete replacement (maybe the slot is removed)
           return 'REPLACE';
         }
-        return 'COMPARE';
+        return 'DIFF';
       });
 
       TreeComparator.applyPatches(patches);
 
       // restore child component subtrees
-      this.childComponents.forEach((component) => {
-        var componentId = component.getHtmlNodeId();
-        if (document.getElementById(componentId) != null && childComponentNodes[componentId] != null) {
-          var currentComponentNode = document.getElementById(componentId);
-          if (childComponentNodes[componentId] != currentComponentNode) {
-            currentComponentNode.parentNode.replaceChild(childComponentNodes[componentId], currentComponentNode);
+      this.childComponents.forEach((childComponent) => {
+        var childId = childComponent.getHtmlNodeId();
+        if (this._getChildNode(childId) != null && savedChildNodes[childId] != null) {
+          var currentComponentNode = this._getChildNode(childId);
+          if (savedChildNodes[childId] != currentComponentNode) {
+            currentComponentNode.parentNode.replaceChild(savedChildNodes[childId], currentComponentNode);
           }
         }
       });
-
     });
   }
 
@@ -158,37 +126,9 @@ class Component {
     this.renderModelChanges();
   }
 
-  renderAll() {
-    this._doRender((htmlContents) => {
-      var componentNode = document.getElementById(this.htmlNodeId)
-      if (componentNode) {
-        document.getElementById(componentNode).innerHTML = htmlContents;
-      } else {
-        console.log('Component [#' + this.htmlNodeId + ']: node not found to render: ' + this.htmlNodeId);
-      }
-    });
-  }
-
-  renderOnly(rootNode) {
-    this._doRender((htmlContents) => {
-      var elem = document.createElement('div');
-      elem.innerHTML = htmlContents;
-      document.getElementById(rootNode).innerHTML =
-        elem.getElementById(rootNode).innerHTML;
-    });
-  }
-
-  update(model) {
-    console.log('Component [#' + this.htmlNodeId + ']: received update from Model [' + model.name + ']');
-    this.render();
-  }
-
   // lifecycle management
   stop() {
     if (this.stopped == false) {
-      this.models.forEach((model) => {
-        model.removeObserver(this);
-      });
       this.stopped = true;
 
       this.childComponents.forEach((child) => {
@@ -198,11 +138,7 @@ class Component {
   }
 
   start() {
-
     if (this.stopped) {
-      this.models.forEach((model) => {
-        model.addObserver(this);
-      });
       this.stopped = false;
 
       this.render();
@@ -239,6 +175,14 @@ class Component {
   }
 
   // "private" methods
+  _getComponentNode() {
+    return document.getElementById(this.getHtmlNodeId());
+  }
+
+  _getChildNode(childId) {
+    return this._getComponentNode().querySelector('#' + childId);
+  }
+
   _doRender(callback) {
     if (this.rendering === true) {
       //avoid recursion
@@ -246,14 +190,14 @@ class Component {
     }
 
     this.rendering = true;
-    if (this.stopped || !this.htmlNodeId || document.getElementById(this.htmlNodeId) === null) {
+    if (this.stopped || !this.htmlNodeId || this._getComponentNode() === null) {
       this.rendering = false;
       return;
     }
 
     this.beforeRender();
 
-    var htmlContents = this._renderModel();
+    var htmlContents = this.renderer().trim();
 
     callback(htmlContents);
 
@@ -276,18 +220,16 @@ class Component {
       if (!this.childComponentsByTag[childTag]) {
         this.childComponentsByTag[childTag] = [];
       }
-      var childTagElements = Array.from(document.getElementById(this.getHtmlNodeId()).getElementsByTagName(childTag));
-      
+      var childTagElements = Array.from(this._getComponentNode().getElementsByTagName(childTag));
+
       var childIds = [];
       for (var i = 0; i < childTagElements.length; i++) {
         var childTagElement = childTagElements[i];
-        var oneModelObject = this._mergeModelInOneObject();
-        var modelItem = eval('oneModelObject.' + childTagElement.getAttribute('model'));
         var itemId = childTagElement.getAttribute('id');
         childIds.push(itemId);
 
         if (!this.getChildComponent(itemId)) {
-          var component = this.createChildComponent(childTag, modelItem, itemId);
+          var component = this.createChildComponent(childTag, childTagElement, itemId);
           if (component) {
             component.setHtmlNodeId(itemId);
             this.addChildComponent(component);
@@ -299,8 +241,8 @@ class Component {
       for (var i = this.childComponentsByTag[childTag].length - 1; i >= 0; i--) {
         var childComponent = this.childComponentsByTag[childTag][i];
         if (childIds.indexOf(childComponent.getHtmlNodeId()) === -1 &&
-            document.getElementById(childComponent.getHtmlNodeId()) === null) {
-          
+          this._getComponentNode().querySelector('#' + childComponent.getHtmlNodeId()) === null) {
+
           this.removeChildComponent(childComponent);
           this.childComponentsByTag[childTag].splice(i, 1);
         }
@@ -308,26 +250,16 @@ class Component {
     });
   }
 
-  createChildComponent(tagName, model, id) {
+  createChildComponent(tagName, childTagElement, id) {
     var constructorFunction = eval('' + tagName);
 
     if (constructorFunction instanceof Function) {
-      return new constructorFunction(model, id);
+      return new constructorFunction(id);
     }
   }
 
-  _mergeModelInOneObject() {
-    var context = {};
-    this.models.forEach((model) => {
-      context = Object.assign(context, model);
-    });
-    return context;
-  }
 
-  _renderModel() {
-    // merge all models into one object
-    return this.modelRenderer(this._mergeModelInOneObject()).trim();
-  }
+
 
   _updateEventListeners() {
     this._clearAllEventListeners();
@@ -350,8 +282,8 @@ class Component {
   }
 
   _addEventListener(nodesQuery, eventType, callback) {
-    if (this.htmlNodeId && document.getElementById(this.htmlNodeId)) {
-      document.getElementById(this.htmlNodeId).querySelectorAll(nodesQuery).forEach((element) => {
+    if (this.htmlNodeId && this._getComponentNode()) {
+      this._getComponentNode().querySelectorAll(nodesQuery).forEach((element) => {
         element.addEventListener(eventType, callback);
         this._listeners.push({
           node: element,
@@ -361,6 +293,418 @@ class Component {
       })
     }
   }
+
+
+}
+
+/*********** DOM TREE DIFF & PATCH *******/
+class TreeComparator {
+  static diff(node1, node2, comparePolicy) {
+    if (comparePolicy) {
+      var actionToDo = comparePolicy(node1, node2);
+      if (actionToDo === 'SKIP') {
+        return [];
+      } else if (actionToDo === 'REPLACE') {
+        return [{
+          toReplace: node1,
+          replacement: node2
+        }];
+      } //otherwise, i.e.: 'DIFF', do nothing
+    }
+
+    var result = [];
+
+    if (node1 == null ||
+      node1.tagName !== node2.tagName ||
+      node1.nodeType !== node2.nodeType ||
+      (
+        node1.nodeValue !== null &&
+        node2.nodeValue !== null &&
+        node1.nodeValue !== node2.nodeValue
+      )) {
+      return [{
+        toReplace: node1,
+        replacement: node2
+      }];
+
+    } else if (node1.childNodes.length > 0 || node2.childNodes.length > 0) { //lets look at children
+      TreeComparator._compareChildren(node1, node2, comparePolicy, result);
+    }
+
+    if (!TreeComparator.equalAttributes(node1, node2)) {
+      result.push({
+        mode: 'attributes',
+        toReplace: node1,
+        replacement: node2
+      });
+    }
+    return result;
+  }
+
+  static _compareChildren(node1, node2, comparePolicy, result) {
+    var keyElementIndexNode1 = {};
+    var keyElementIndexNode2 = {};
+    TreeComparator._buildChildrenKeyIndex(node1, node2, keyElementIndexNode1, keyElementIndexNode2);
+    var child1pos = 0;
+    var child2pos = 0;
+    var insertions = 0;
+    var deletions = 0;
+    var child1Array = Array.from(node1.childNodes); //copy node1 childs to an array, sinde we will do some swaps here, but we do not want to do them in DOM now
+    node1.childNodes.forEach((node) => {})
+    while (child1pos < node1.childNodes.length && child2pos < node2.childNodes.length) {
+      var child1 = child1Array[child1pos];
+      var child2 = node2.childNodes[child2pos];
+
+      if (child1.nodeType !== Node.ELEMENT_NODE && child2.nodeType === Node.ELEMENT_NODE) {
+        result.push({
+          mode: 'remove-node',
+          toReplace: child1
+        });
+        child1pos++;
+        deletions++;
+        continue;
+      }
+
+      if (child1.nodeType === Node.ELEMENT_NODE && child2.nodeType !== Node.ELEMENT_NODE) {
+        result.push({
+          mode: 'insert-node',
+          toReplace: node1,
+          replacement: child2,
+          beforePos: child1pos + insertions - deletions
+        });
+        insertions++;
+        child2pos++;
+        continue;
+      }
+
+      if (child1.nodeType !== Node.ELEMENT_NODE && child2.nodeType !== Node.ELEMENT_NODE) {
+        var partial =
+          TreeComparator.diff(
+            child1,
+            child2,
+            comparePolicy);
+        result.push.apply(result, partial);
+
+        child1pos++;
+        child2pos++;
+        continue;
+      }
+
+      // both ar key-based element nodes
+
+      // do we have to swap them?
+      var key1 = child1.getAttribute('key');
+      var key2 = child2.getAttribute('key');
+
+      if (key1 !== key2) {
+        if ((key1 in keyElementIndexNode2) && (key2 in keyElementIndexNode1)) {
+          //both nodes are in the initial and final result, so we only need to swap them
+          result.push({
+            mode: 'swap-nodes',
+            toReplace: child1,
+            replacement: node1.childNodes[keyElementIndexNode1[key2].pos]
+          });
+          TreeComparator._swapArrayElements(child1Array, child1pos, keyElementIndexNode1[key2].pos);
+
+        } else {
+          //both nodes are NOT in the initial and final result
+          if (!(key2 in keyElementIndexNode1)) {
+            // if a key element in the new result is missing in the current tree, we should insert it
+            result.push({
+              mode: 'insert-node',
+              toReplace: node1,
+              replacement: child2,
+              beforePos: child1pos + insertions - deletions
+            });
+            insertions++;
+            child2pos++;
+
+          }
+          // and if a key element in the current result is missing in the new result, we should remove it
+          if (!(key1 in keyElementIndexNode2)) {
+            result.push({
+              mode: 'remove-node',
+              toReplace: child1
+            });
+            child1pos++;
+            deletions++;
+
+          }
+        }
+
+      } else {
+        var partial =
+          TreeComparator.diff(
+            child1,
+            child2,
+            comparePolicy);
+        result.push.apply(result, partial);
+
+        child1pos++;
+        child2pos++;
+      }
+    }
+
+    if (child1pos < node1.childNodes.length) {
+      for (var i = child1pos; i < node1.childNodes.length; i++) {
+        result.push({
+          mode: 'remove-node',
+          toReplace: node1.childNodes[i]
+        });
+      }
+    } else if (child2pos < node2.childNodes.length) {
+      for (var i = child2pos; i < node2.childNodes.length; i++) {
+        result.push({
+          mode: 'append-child',
+          toReplace: node1,
+          replacement: node2.childNodes[i]
+        });
+      }
+    }
+  }
+
+  static _swapArrayElements(arr, indexA, indexB) {
+    var temp = arr[indexA];
+    arr[indexA] = arr[indexB];
+    arr[indexB] = temp;
+  }
+
+  static _buildChildrenKeyIndex(node1, node2, keyElementIndexNode1, keyElementIndexNode2) {
+
+    //check if node2 children are all key-based 
+    var child1pos = -1;
+    node2.childNodes.forEach((node) => {
+      child1pos++;
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        var key = node.getAttribute('key');
+        if (key) {
+          keyElementIndexNode2[key] = {
+            node: node,
+            pos: child1pos
+          };
+        }
+      }
+    });
+
+    var child2pos = -1;
+    node1.childNodes.forEach((node) => {
+      child2pos++;
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        var key = node.getAttribute('key');
+        if (key) {
+          keyElementIndexNode1[key] = {
+            node: node,
+            pos: child2pos
+          };
+        }
+      }
+    });
+    //  return check;
+    return true;
+  }
+
+  static equalAttributes(node1, node2) {
+    if (!node1.attributes && node2.attributes ||
+      node1.attributes && !node2.attributes) {
+      return false;
+    } else if (
+      node1.attributes &&
+      node1.attributes.length != node2.attributes.length) {
+      return false;
+    } else if (node1.attributes) {
+      for (var i = 0; i < node1.attributes.length; i++) {
+        if (node1.attributes[i].name != node2.attributes[i].name ||
+          node1.attributes[i].value != node2.attributes[i].value) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  static _swapElements(obj1, obj2) {
+    var temp = document.createElement("div");
+    obj1.parentNode.insertBefore(temp, obj1);
+    obj2.parentNode.insertBefore(obj1, obj2);
+    temp.parentNode.insertBefore(obj2, temp);
+    temp.parentNode.removeChild(temp);
+  }
+
+  static applyPatches(patches) {
+    patches.forEach((patch) => {
+      // HTML nodes
+      var toReplace = patch.toReplace;
+      var replacement = patch.replacement;
+      if (patch.mode === 'attributes') {
+        for (var i = 0; i < replacement.attributes.length; i++) {
+          var attribute = replacement.attributes[i];
+          if (attribute.name === 'value' &&
+            toReplace.value != attribute.value) {
+            toReplace.value = attribute.value;
+          }
+          if (attribute.name === 'checked') {
+            toReplace.checked =
+              (attribute.checked != false) ? true : false;
+          }
+          toReplace.setAttribute(attribute.name, attribute.value);
+        }
+
+        for (var i = toReplace.attributes.length - 1; i >= 0; i--) {
+          var attribute = patch.toReplace.attributes[i];
+          if (!replacement.hasAttribute(attribute.name)) {
+            if (attribute.name === 'checked') {
+              toReplace.checked = false;
+            }
+            toReplace.removeAttribute(attribute.name);
+          }
+        }
+      } else if (patch.mode === 'remove-node') {
+        patch.toReplace.parentNode.removeChild(patch.toReplace);
+      } else if (patch.mode === 'append-child') {
+        patch.toReplace.appendChild(patch.replacement);
+      } else if (patch.mode === 'insert-node') {
+        if (patch.toReplace.childNodes.length === 0) {
+          patch.toReplace.appendChild(patch.replacement);
+        } else {
+          patch.toReplace.insertBefore(patch.replacement, patch.toReplace.childNodes[patch.beforePos]);
+        }
+      } else if (patch.mode === 'swap-nodes') {
+        TreeComparator._swapElements(patch.toReplace, patch.replacement);
+      } else {
+        toReplace.parentNode.replaceChild(replacement, toReplace);
+      }
+    });
+  }
+}
+
+/**
+  A Model is an Observable object.
+  
+  The object can receive observers (via addObserver), which will be notified
+  when the set( callback ) method of this object is called.
+    
+*/
+class Model {
+  constructor(name) {
+    this.observers = [];
+    this.name = name ? name : '--unnamed model--';
+  }
+
+  set(update, hint) {
+    update(this);
+    this.notifyObservers(hint);
+  }
+
+  notifyObservers(hint) {
+    this.observers.forEach((observer) => {
+      observer.update(this, hint);
+    });
+  }
+  addObserver(observer) {
+    this.observers.push(observer);
+    console.log('Model [' + this.name + ']: added observer, total: ' + this.observers.length);
+  }
+
+  removeObserver(observer) {
+    if (this.observers.indexOf(observer) != -1) {
+      this.observers.splice(this.observers.indexOf(observer), 1);
+      console.log('Model [' + this.name + ']: removed observer, total: ' + this.observers.length);
+    }
+  }
+}
+
+
+/* 
+  Component class
+  
+  A component is an object whose responsibilities are:
+    - Render into HTML a given model object by using a renderer function
+    - Listen for changes in model object, updating the HTML
+    - Registering event listeners in its HTML nodes
+  
+  In order to create a Component, you can inherit from this class and use its
+constructor, which takes a renderer function, the model
+instance and a root node id for placing its rendered contents.
+*/
+class ModelComponent extends Component {
+
+  constructor(modelRenderer, model, htmlNodeId, childTags) {
+    super(() => {
+      return modelRenderer(this._mergeModelInOneObject());
+    }, htmlNodeId, childTags);
+
+
+
+    if (!model) {
+      this.models = [];
+    } else if (model instanceof Model) {
+      this.models = [model];
+    } else if (model instanceof Array) {
+      model.forEach((model) => {
+        if (!model instanceof Model) {
+          throw 'Component [' + this.htmlNodeId + ']: the model must inherit Model';
+        }
+      });
+      this.models = model;
+    } else {
+      throw 'Component [' + this.htmlNodeId + ']: the model must inherit Model';
+    }
+
+
+
+
+  }
+
+  update(model) {
+    console.log('Component [#' + this.htmlNodeId + ']: received update from Model [' + model.name + ']');
+    this.render();
+  }
+
+  // lifecycle management
+  stop() {
+
+    if (this.stopped == false) {
+      this.models.forEach((model) => {
+        model.removeObserver(this);
+      });
+    }
+    super.stop();
+  }
+
+  start() {
+    if (this.stopped) {
+      this.models.forEach((model) => {
+        model.addObserver(this);
+      });
+    }
+    super.start();
+  }
+
+
+  _mergeModelInOneObject() {
+    var context = {};
+    this.models.forEach((model) => {
+      context = Object.assign(context, model);
+    });
+    return context;
+  }
+  
+  createChildComponent(tagName, childTagElement, id) {
+    var oneModelObject = this._mergeModelInOneObject();
+    if (childTagElement.getAttribute('model')) {
+      var modelItem = eval('oneModelObject.' + childTagElement.getAttribute('model'));
+    }
+    return this.createModelChildComponent(tagName, childTagElement, id, modelItem);
+  }
+  
+  createModelChildComponent(tagName, childTagElement, id, modelItem) {
+    var constructorFunction = eval('' + tagName);
+
+    if (constructorFunction instanceof Function) {
+      return new constructorFunction(id, modelItem);
+    }
+  }
+
 }
 
 /*
@@ -390,7 +734,7 @@ class Component {
   Calling start() will try to go to the page indicated by the hash, rendering
   its contents.
 */
-class RouterComponent extends Component {
+class RouterComponent extends ModelComponent {
   constructor(rootHtmlId, modelRenderer, routeContentsHtmlId, model) {
 
     // add a routerModel to the given model(s), creating an array
@@ -496,394 +840,5 @@ class RouterComponent extends Component {
     } else {
       console.log('Router: no default page defined');
     }
-  }
-}
-
-/**
-  A Model is an Observable object.
-  
-  The object can receive observers (via addObserver), which will be notified
-  when the set( callback ) method of this object is called.
-    
-*/
-class Model {
-  constructor(name) {
-    this.observers = [];
-    this.name = name ? name : '--unnamed model--';
-  }
-
-  set(update, hint) {
-    update(this);
-
-    this.notifyObservers(hint);
-  }
-
-  notifyObservers(hint) {
-    this.observers.forEach((observer) => {
-      observer.update(this, hint);
-    });
-  }
-  addObserver(observer) {
-    this.observers.push(observer);
-    console.log('Model [' + this.name + ']: added observer, total: ' + this.observers.length);
-  }
-
-  removeObserver(observer) {
-    if (this.observers.indexOf(observer) != -1) {
-      this.observers.splice(this.observers.indexOf(observer), 1);
-      console.log('Model [' + this.name + ']: removed observer, total: ' + this.observers.length);
-    }
-  }
-}
-
-/*********** DOM TREE COMPARATOR & PATCHER *******/
-class TreeComparator {
-  static diff(node1, node2, comparePolicy) {
-    if (comparePolicy) {
-      var actionToDo = comparePolicy(node1, node2);
-      if (actionToDo === 'SKIP') {
-        return [];
-      } else if (actionToDo === 'REPLACE') {
-        return [{
-          toReplace: node1,
-          replacement: node2
-        }];
-      } //otherwise, i.e.: 'COMPARE', do nothing
-    }
-
-    var result = [];
-
-    if (node1 == null ||
-      node1.tagName !== node2.tagName ||
-      node1.nodeType !== node2.nodeType ||
-      (
-        node1.nodeValue !== null &&
-        node2.nodeValue !== null &&
-        node1.nodeValue !== node2.nodeValue
-      )) {
-      return [{
-        toReplace: node1,
-        replacement: node2
-      }];
-
-    } else if (node1.childNodes.length > 0 || node2.childNodes.length > 0) { //lets look at children
-
-
-      // are children key-based?
-      var keyBasedChildrenDone = TreeComparator._compareAsKeyBasedChildren(node1, node2, comparePolicy, result);
-
-
-      if (!keyBasedChildrenDone && node1.childNodes.length != node2.childNodes.length) {
-        var min = Math.min(node1.childNodes.length, node2.childNodes.length);
-
-        for (var i = 0; i < min; i++) {
-          var partial =
-            TreeComparator.diff(
-              node1.childNodes[i],
-              node2.childNodes[i],
-              comparePolicy);
-
-          result.push.apply(result, partial);
-        }
-        if (node1.childNodes.length > min) {
-          for (var i = min; i < node1.childNodes.length; i++) {
-            result.push({
-              mode: 'remove-node',
-              toReplace: node1.childNodes[i]
-            });
-          }
-        } else {
-          for (var i = min; i < node2.childNodes.length; i++) {
-            result.push({
-              mode: 'append-child',
-              toReplace: node1,
-              replacement: node2.childNodes[i]
-            });
-          }
-        }
-
-      } else if (!keyBasedChildrenDone) {
-        var result = [];
-        for (var i = 0; i < node1.childNodes.length; i++) {
-          var partial =
-            TreeComparator.diff(
-              node1.childNodes[i],
-              node2.childNodes[i],
-              comparePolicy);
-
-          result.push.apply(result, partial);
-        }
-      }
-    }
-
-    if (!TreeComparator.equalAttributes(node1, node2)) {
-      result.push({
-        mode: 'attributes',
-        toReplace: node1,
-        replacement: node2
-      });
-    }
-    return result;
-  }
-
-  static _compareAsKeyBasedChildren(node1, node2, comparePolicy, result) {
-    var keyElementIndexNode1 = {};
-    var keyElementIndexNode2 = {};
-    if (TreeComparator.buildChildrenKeyIndex(node1, node2, keyElementIndexNode1, keyElementIndexNode2)) {
-      var child1pos = 0;
-      var child2pos = 0;
-      var insertions = 0;
-      var deletions = 0;
-      var child1Array = Array.from(node1.childNodes); //copy node1 childs to an array, sinde we will do some swaps here, but we do not want to do them in DOM now
-      node1.childNodes.forEach((node) => {})
-      while (child1pos < node1.childNodes.length && child2pos < node2.childNodes.length) {
-        var child1 = child1Array[child1pos];
-        var child2 = node2.childNodes[child2pos];
-
-        if (child1.nodeType !== Node.ELEMENT_NODE && child2.nodeType === Node.ELEMENT_NODE) {
-          result.push({
-            mode: 'remove-node',
-            toReplace: child1
-          });
-          child1pos++;
-          deletions++;
-          continue;
-        }
-
-        if (child1.nodeType === Node.ELEMENT_NODE && child2.nodeType !== Node.ELEMENT_NODE) {
-          result.push({
-            mode: 'insert-node',
-            toReplace: node1,
-            replacement: child2,
-            beforePos: child1pos + insertions - deletions
-          });
-          insertions++;
-          child2pos++;
-          continue;
-        }
-
-        if (child1.nodeType !== Node.ELEMENT_NODE && child2.nodeType !== Node.ELEMENT_NODE) {
-          var partial =
-            TreeComparator.diff(
-              child1,
-              child2,
-              comparePolicy);
-          result.push.apply(result, partial);
-
-          child1pos++;
-          child2pos++;
-          continue;
-        }
-
-        // both ar key-based element nodes
-
-        // do we have to swap them?
-        var key1 = child1.getAttribute('key');
-        var key2 = child2.getAttribute('key');
-
-        if (key1 !== key2) {
-          if ((key1 in keyElementIndexNode2) && (key2 in keyElementIndexNode1)) {
-            //both nodes are in the initial and final result, so we only need to swap them
-            result.push({
-              mode: 'swap-nodes',
-              toReplace: child1,
-              replacement: node1.childNodes[keyElementIndexNode1[key2].pos]
-            });
-            TreeComparator.swapArrayElements(child1Array, child1pos, node1.childNodes[keyElementIndexNode1[key2].pos]);
-            child1pos++;
-            child2pos++;
-
-          } else {
-            //both nodes are NOT in the initial and final result
-            if (!(key2 in keyElementIndexNode1)) {
-              // if a key element in the new result is missing in the current tree, we should insert it
-              result.push({
-                mode: 'insert-node',
-                toReplace: node1,
-                replacement: child2,
-                beforePos: child1pos + insertions - deletions
-              });
-              insertions++;
-              child2pos++;
-
-            }
-            // and if a key element in the current result is missing in the new result, we should remove it
-            if (!(key1 in keyElementIndexNode2)) {
-              result.push({
-                mode: 'remove-node',
-                toReplace: child1
-              });
-              child1pos++;
-              deletions++;
-
-            }
-          }
-
-        } else {
-          var partial =
-            TreeComparator.diff(
-              child1,
-              child2,
-              comparePolicy);
-          result.push.apply(result, partial);
-
-          child1pos++;
-          child2pos++;
-        }
-      }
-
-      if (child1pos < node1.childNodes.length) {
-        for (var i = child1pos; i < node1.childNodes.length; i++) {
-          result.push({
-            mode: 'remove-node',
-            toReplace: node1.childNodes[i]
-          });
-        }
-      } else if (child2pos < node2.childNodes.length) {
-        for (var i = child2pos; i < node2.childNodes.length; i++) {
-          result.push({
-            mode: 'append-child',
-            toReplace: node1,
-            replacement: node2.childNodes[i]
-          });
-        }
-      }
-
-      return true;
-    }
-    return false;
-  }
-
-  static swapArrayElements(arr, indexA, indexB) {
-    var temp = arr[indexA];
-    arr[indexA] = arr[indexB];
-    arr[indexB] = temp;
-  }
-
-  static buildChildrenKeyIndex(node1, node2, keyElementIndexNode1, keyElementIndexNode2) {
-
-    //check if node2 children are all key-based 
-    var check = true;
-    var child1pos = -1;
-    node2.childNodes.forEach((node) => {
-      child1pos++;
-      if (node.nodeType === Node.ELEMENT_NODE) {
-        var key = node.getAttribute('key');
-        if (!key) {
-          check = false;
-          return;
-        } else {
-          keyElementIndexNode2[key] = {
-            node: node,
-            pos: child1pos
-          };
-        }
-      }
-    });
-
-    var child2pos = -1;
-    node1.childNodes.forEach((node) => {
-      child2pos++;
-      if (node.nodeType === Node.ELEMENT_NODE) {
-        var key = node.getAttribute('key');
-        if (!key) {
-          check = false;
-          return;
-        } else {
-          keyElementIndexNode1[key] = {
-            node: node,
-            pos: child2pos
-          };
-        }
-      }
-    });
-    return check;
-  }
-
-  static equalAttributes(node1, node2) {
-    if (!node1.attributes && node2.attributes ||
-      node1.attributes && !node2.attributes) {
-      return false;
-    } else if (
-      node1.attributes &&
-      node1.attributes.length != node2.attributes.length) {
-      return false;
-    } else if (node1.attributes) {
-      for (var i = 0; i < node1.attributes.length; i++) {
-        if (node1.attributes[i].name != node2.attributes[i].name ||
-          node1.attributes[i].value != node2.attributes[i].value) {
-          return false;
-        }
-      }
-    }
-    return true;
-  }
-  static swapElements(obj1, obj2) {
-    // create marker element and insert it where obj1 is
-    var temp = document.createElement("div");
-    obj1.parentNode.insertBefore(temp, obj1);
-
-    // move obj1 to right before obj2
-    obj2.parentNode.insertBefore(obj1, obj2);
-
-    // move obj2 to right before where obj1 used to be
-    temp.parentNode.insertBefore(obj2, temp);
-
-    // remove temporary marker node
-    temp.parentNode.removeChild(temp);
-  }
-  static applyPatches(patches) {
-    patches.forEach((patch) => {
-      // HTML nodes
-      var toReplace = patch.toReplace;
-      var replacement = patch.replacement;
-      if (patch.mode === 'attributes') {
-        for (var i = 0; i < replacement.attributes.length; i++) {
-          var attribute = replacement.attributes[i];
-          if (attribute.name === 'value' &&
-            toReplace.value != attribute.value) {
-            toReplace.value = attribute.value;
-          }
-          if (attribute.name === 'checked') {
-            toReplace.checked =
-              (attribute.checked != false) ? true : false;
-          }
-          toReplace.setAttribute(attribute.name, attribute.value);
-        }
-
-        for (var i = toReplace.attributes.length - 1; i >= 0; i--) {
-          var attribute = patch.toReplace.attributes[i];
-          if (!replacement.hasAttribute(attribute.name)) {
-            if (attribute.name === 'checked') {
-              toReplace.checked = false;
-            }
-            toReplace.removeAttribute(attribute.name);
-          }
-        }
-      } else if (patch.mode === 'remove-node') {
-        patch.toReplace.parentNode.removeChild(patch.toReplace);
-      } else if (patch.mode === 'append-child') {
-        patch.toReplace.appendChild(patch.replacement);
-      } else if (patch.mode === 'insert-node') {
-        if (patch.toReplace.childNodes.length === 0) {
-          patch.toReplace.appendChild(patch.replacement);
-        } else {
-          patch.toReplace.insertBefore(patch.replacement, patch.toReplace.childNodes[patch.beforePos]);
-        }
-      } else if (patch.mode === 'swap-nodes') {
-        TreeComparator.swapElements(patch.toReplace, patch.replacement);
-      } else {
-        toReplace.parentNode.replaceChild(replacement, toReplace);
-      }
-
-      /*
-      result.push({
-        mode: 'swap-nodes',
-        toReplace: node1,
-        swapElem1: child1,
-        swapElem2: node1.childNodes[keyElemIndexNode1[key2].pos];
-      });
-      */
-    });
   }
 }

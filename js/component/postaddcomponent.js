@@ -1,4 +1,4 @@
-class PostAddComponent extends Component {
+class PostAddComponent extends ModelComponent {
   constructor(postsModel, userModel, router) {
     super(Handlebars.templates.postedit, [postsModel, userModel]);
     this.postsModel = postsModel; // posts
