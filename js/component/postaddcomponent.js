@@ -1,4 +1,4 @@
-class PostAddComponent extends ModelComponent {
+class PostAddComponent extends Fronty.ModelComponent {
   constructor(postsModel, userModel, router) {
     super(Handlebars.templates.postedit, [postsModel, userModel]);
     this.postsModel = postsModel; // posts

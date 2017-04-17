@@ -1,4 +1,4 @@
-class PostsModel extends Model {
+class PostsModel extends Fronty.Model {
 
   constructor() {
     super('PostsModel'); //call super

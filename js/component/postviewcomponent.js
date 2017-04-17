@@ -1,4 +1,4 @@
-class PostViewComponent extends ModelComponent {
+class PostViewComponent extends Fronty.ModelComponent {
   constructor(postsModel, userModel, router) {
     super(Handlebars.templates.postview, [postsModel, userModel]);
 

@@ -16,8 +16,8 @@ function loadTextFile(url) {
 
 // Configuration
 var AppConfig = {
-  //backendServer: 'http://localhost/mvcblog'
-  backendServer: '/mvcblog'
+  backendServer: 'http://localhost/mvcblog'
+  //backendServer: '/mvcblog'
 }
 
 Handlebars.templates = {};

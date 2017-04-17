@@ -1,4 +1,4 @@
-class UserModel extends Model {
+class UserModel extends Fronty.Model {
   constructor() {
     super('UserModel');
     this.isLogged = false;

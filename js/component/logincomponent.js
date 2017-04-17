@@ -1,4 +1,4 @@
-class LoginComponent extends ModelComponent {
+class LoginComponent extends Fronty.ModelComponent {
   constructor(userModel, router) {
     super(Handlebars.templates.login, userModel);
     this.userModel = userModel;
