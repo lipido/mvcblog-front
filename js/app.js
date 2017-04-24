@@ -36,7 +36,9 @@ Promise.all([
     loadTextFile('templates/components/post-edit.hbs').then((source) =>
       Handlebars.templates.postedit = Handlebars.compile(source)),
     loadTextFile('templates/components/post-view.hbs').then((source) =>
-      Handlebars.templates.postview = Handlebars.compile(source))
+      Handlebars.templates.postview = Handlebars.compile(source)),
+    loadTextFile('templates/components/post-row.hbs').then((source) =>
+      Handlebars.templates.postrow = Handlebars.compile(source))
   ])
   .then(() => {
     $(() => {

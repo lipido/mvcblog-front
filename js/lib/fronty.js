@@ -190,6 +190,10 @@ var Component = function () {
      */
     this.childTags = childTags ? childTags : [];
 
+    this._childTagsCanonical = this.childTags.map(function (tag) {
+      return tag.toUpperCase();
+    });
+
     // do not render until the component is started with start()
     /**
      * Whether this Component is stopped.<br>
@@ -243,6 +247,9 @@ var Component = function () {
 
     // Elements where fronty-component attribute is found
     this._nodesWithFrontyComponentAttribute = [];
+
+    // Elements where fronty-component attribute is found
+    this._nodesWithCustomTag = [];
 
     // An object for parsing HTML into DOM (classic root.innerHTML=htmlstring)
     // We delegate on a "parsing service" object in order to allow the
@@ -465,7 +472,7 @@ var Component = function () {
 
       // the HTML is a string, parse it and then render
       this._getDOMFromRendererOutput(htmlContents, function (newTree) {
-
+        var firstRender = _this._previousVirtualDOM === null;
         // compute the differences between the previous DOM and the newTree,
         // updating both the real DOM and the previous DOM.
         _this._renderNewTree(newTree);
@@ -474,7 +481,7 @@ var Component = function () {
         _this._restoreChildNodes(savedChildNodes);
 
         // put the global event listener on the root of this component
-        _this._updateEventListeners();
+        if (firstRender) _this._updateEventListeners();
 
         // create all children that may have appeared in the form of
         // custom tag HTML elements, or elements with the "fronty-component"
@@ -651,14 +658,12 @@ var Component = function () {
         // 1. Ignore and totally replace the contents of the destinty node if we are in the first render. 
         if (firstRender) return TreeComparator.COMPARE_POLICY_REPLACE;
 
-        // 2. Skip comparisons on our children Component slots (child components are the responsible ones) 
-        // The parent component, once re-rendered, should not touch children root nodes, since
-        // they are under control of child components.
-        if (node1.id && node2.id && node1.id === node2.id && node1.id in _this2.childComponentIds) {
-          return TreeComparator.COMPARE_POLICY_SKIP;
+        // 2. Child component nodes should only be compared at attribute level in the parent component
+        if (node1.id && node2.id && node1.id === node2.id && _this2.childComponentIds[node1.id] !== undefined) {
+          return TreeComparator.COMPARE_POLICY_ATTRIBUTES;
         }
 
-        if (node1.id && node1.id in _this2.childComponentIds) {
+        if (node1.id && (!node2.id || node2.id !== node1.id) && _this2.childComponentIds[node1.id] !== undefined) {
           // we want to compare a child component slot with another element, do a complete
           // replacement
           return TreeComparator.COMPARE_POLICY_REPLACE;
@@ -668,9 +673,24 @@ var Component = function () {
         return TreeComparator.COMPARE_POLICY_DIFF;
       });
 
+      // Apply patches to our previous tree
+      if (!firstRender) {
+        // On re-render it will be the patches previous virtual DOM
+        //this._previousVirtualDOM.replaceChild(currentTree, this._previousVirtualDOM.firstChild);
+        TreeComparator.applyPatches(patches);
+      } else {
+        // in the first render, the next previous tree will be the current newTree
+        this._previousVirtualDOM = document.createElement('div');
+        this._previousVirtualDOM.appendChild(newTree);
+      }
+
       // Apply patches to the REAL DOM
       TreeComparator.applyPatches(patches, function (patch) {
 
+        // for the real DOM, we will not patch nodes that are currently rendered by child nodes
+        if (patch.toReplace.id && patch.replacement !== undefined && patch.replacement.id && patch.toReplace.id === patch.replacement.id && _this2.childComponentIds[patch.toReplace.id] !== undefined) {
+          return null;
+        }
         // However, the patches contains nodes from the "virtual" DOM trees, not
         // of the real DOM. We need no get the real nodes.
         // Moreover, we will clone the nodes being inserted in the real DOM because
@@ -678,8 +698,6 @@ var Component = function () {
         // cannot have two parents!
         // To do these, we can use the patchMapping parameter of TreeComparator.applyPatches(),
         // which allows us to change each being applied by another patch.
-
-        patch = Object.assign({}, patch); // shallow copy of the patch
 
         // toReplace will be the real DOM node. In our virtual DOM, each node
         // has a reference to the real DOM node (see the next few lines).
@@ -699,17 +717,6 @@ var Component = function () {
 
         return patch;
       });
-
-      if (firstRender) {
-        // in the first render, the next previous tree will be the current newTree
-
-        this._previousVirtualDOM = document.createElement('div');
-        this._previousVirtualDOM.appendChild(newTree);
-      } else {
-        // On re-render it will be the patches previous virtual DOM
-        //this._previousVirtualDOM.replaceChild(currentTree, this._previousVirtualDOM.firstChild);
-        TreeComparator.applyPatches(patches);
-      }
     }
 
     /*
@@ -765,7 +772,9 @@ var Component = function () {
     key: '_resolveRealNode',
     value: function _resolveRealNode(node) {
 
-      // if the node has an id of a child node, we find it via id
+      // if the node has an id of a child node, we find it via id, since the
+      // "realNode" pointer does not references the real node, since the
+      // child components have replaced it by their root node.
       if (node.id !== undefined && this.childComponentIds[node.id] !== undefined) {
         return document.getElementById(node.id);
       }
@@ -786,6 +795,7 @@ var Component = function () {
     value: function _resetVirtualDOM() {
       this._previousVirtualDOM = null;
       this._nodesWithFrontyComponentAttribute = [];
+      this._nodesWithCustomTag = [];
     }
 
     /*
@@ -798,11 +808,12 @@ var Component = function () {
       for (var i = 0; i < this.childComponents.length; i++) {
         var childComponent = this.childComponents[i];
         var childId = childComponent.getHtmlNodeId();
-        if (this._getChildNode(childId) !== null && childId in savedChildNodes) {
+        if (this._getChildNode(childId) !== null && savedChildNodes[childId] !== undefined) {
           var currentComponentNode = this._getChildNode(childId);
           if (savedChildNodes[childId] != currentComponentNode) {
             currentComponentNode.parentNode.replaceChild(savedChildNodes[childId], currentComponentNode);
           }
+          //childComponent.afterParentRender();
         }
       }
     }
@@ -847,9 +858,17 @@ var Component = function () {
     value: function _cloneAndIndex(root) {
       var clone = root.cloneNode();
       root.realNode = clone;
-
-      if (root.nodeType === Node.ELEMENT_NODE && root.hasAttribute('fronty-component')) {
-        this._nodesWithFrontyComponentAttribute.push(root);
+      if (root.nodeType === Node.ELEMENT_NODE) {
+        if (root.hasAttribute('fronty-component')) {
+          root.componentClass = root.getAttribute('fronty-component');
+          this._nodesWithFrontyComponentAttribute.push(root);
+        } else {
+          var tagIndex = this._childTagsCanonical.indexOf(root.tagName.toUpperCase());
+          if (tagIndex !== -1) {
+            root.componentClass = this.childTags[tagIndex];
+            this._nodesWithCustomTag.push(root);
+          }
+        }
       }
       for (var i = 0; i < root.childNodes.length; i++) {
         clone.appendChild(this._cloneAndIndex(root.childNodes[i]));
@@ -868,108 +887,61 @@ var Component = function () {
     key: '_createChildComponents',
     value: function _createChildComponents() {
 
-      if (!this.childComponentsByClassName) {
-        this.childComponentsByClassName = {};
-      }
-
       // create childs by tag
-      this._createTagBasedChildComponents();
+      this._createDynamicChildComponents(this._nodesWithCustomTag);
 
       // create childs by fronty-component attribute
-      this._createAttributeBasedChildComponents();
-
-      // remove children that have been dynamically created and their slots
-      // are no longer present
-      this._childrenGC();
+      this._createDynamicChildComponents(this._nodesWithFrontyComponentAttribute);
     }
 
     /*
      * Creates components nodes dynamically for elements with the custom tag <ClassName ...>
+     * or fronty-component="ClassName" attribute
      */
 
   }, {
-    key: '_createTagBasedChildComponents',
-    value: function _createTagBasedChildComponents() {
-
+    key: '_createDynamicChildComponents',
+    value: function _createDynamicChildComponents(nodes) {
       var bufferedParsingService = new Component.BufferedParsingService();
       bufferedParsingService.start();
 
-      for (var i = 0; i < this.childTags.length; i++) {
-        var childTag = this.childTags[i];
-        if (!this.childComponentsByClassName[childTag]) {
-          this.childComponentsByClassName[childTag] = {};
-        }
-        var childTagElements = Array.from(this._getComponentNode().getElementsByTagName(childTag));
-
-        for (var _i = 0; _i < childTagElements.length; _i++) {
-          var childTagElement = childTagElements[_i];
-          var itemId = childTagElement.getAttribute('id');
-
-          // create component if there is no child component for this id yet
-          if (!this.getChildComponent(itemId)) {
-            this._createAndAddChildComponent(childTag, childTagElement, itemId, bufferedParsingService);
-          }
-        }
-      }
-      bufferedParsingService.finish();
-    }
-
-    /*
-     * Creates child components dynamically for elements containing the "fronty-component=className"
-     * attribute.
-     */
-
-  }, {
-    key: '_createAttributeBasedChildComponents',
-    value: function _createAttributeBasedChildComponents() {
-
-      var bufferedParsingService = new Component.BufferedParsingService();
-      bufferedParsingService.start();
-
-      if (!this._nodesWithFrontyComponentAttribute) {
-        this._nodesWithFrontyComponentAttribute = [];
-      }
-
-      for (var j = this._nodesWithFrontyComponentAttribute.length - 1; j >= 0; j--) {
-        var node = this._nodesWithFrontyComponentAttribute[j];
+      for (var j = nodes.length - 1; j >= 0; j--) {
+        var node = nodes[j];
         var nodeId = node.getAttribute('id');
-        var className = node.getAttribute('fronty-component');
+        var className = node.componentClass;
 
         if (document.getElementById(nodeId) !== null) {
-
-          if (!this.getChildComponent(nodeId)) {
-            this._createAndAddChildComponent(className, node, nodeId, bufferedParsingService);
-          }
+          this._createOrUpdateChildComponent(className, node, nodeId, bufferedParsingService);
         } else {
-          this._nodesWithFrontyComponentAttribute.splice(j, 1);
+          nodes.splice(j, 1);
+          var childComponent = this.getChildComponent(nodeId);
+          if (childComponent !== undefined) {
+            this.removeChildComponent(childComponent);
+          }
         }
       }
       bufferedParsingService.finish();
     }
+  }, {
+    key: '_createOrUpdateChildComponent',
+    value: function _createOrUpdateChildComponent(className, node, nodeId, bufferedParsingService) {
+      // create component if there is no child component for this id yet
+      if (!this.getChildComponent(nodeId)) {
+        this._createAndAddChildComponent(className, node, nodeId, bufferedParsingService);
+      } else {
+        this.updateChildComponent(className, node, nodeId, bufferedParsingService);
+      }
+    }
 
-    /* 
-     * Cleans remaining children that have disappear (these are tag based childs, fronty-component
-     * childs have been deleted just before).
+    /**
+     * Called when the parent ir rendered. This method does nothing. It is 
+     * intended to be overriden
+     * 
      */
 
   }, {
-    key: '_childrenGC',
-    value: function _childrenGC() {
-      var childTags = Object.keys(this.childComponentsByClassName);
-      for (var i = 0; i < childTags.length; i++) {
-        var childTag = childTags[i];
-        var componentIdsInTag = Object.keys(this.childComponentsByClassName[childTag]);
-        for (var j = componentIdsInTag.length - 1; j >= 0; j--) {
-          var childComponent = this.childComponentsByClassName[childTag][componentIdsInTag[j]];
-
-          if (document.getElementById(childComponent.getHtmlNodeId()) === null) {
-
-            this.removeChildComponent(childComponent);
-            delete this.childComponentsByClassName[childTag][childComponent.getHtmlNodeId()];
-          }
-        }
-      }
-    }
+    key: 'updateChildComponent',
+    value: function updateChildComponent(className, node, nodeId, bufferedParsingService) {}
 
     /* 
      * Instantiates and indexes a new child component dynamically.
@@ -985,12 +957,6 @@ var Component = function () {
         component._parsingService = parsingService;
         this.addChildComponent(component);
         component._parsingService = prevParsingService;
-
-        if (this.childComponentsByClassName[className] === undefined) {
-          this.childComponentsByClassName[className] = {};
-        }
-
-        this.childComponentsByClassName[className][id] = component;
       }
     }
 
@@ -1151,6 +1117,17 @@ var TreeComparator = function () {
         var actionToDo = comparePolicy(node1, node2);
         if (actionToDo === TreeComparator.COMPARE_POLICY_SKIP) {
           return [];
+        } else if (actionToDo === TreeComparator.COMPARE_POLICY_ATTRIBUTES) {
+          if (!TreeComparator._equalAttributes(node1, node2)) {
+            // if there are some differences in attributtes, add this patch also.
+            return [{
+              mode: TreeComparator.PATCH_SET_ATTRIBUTES,
+              toReplace: node1,
+              replacement: node2
+            }];
+          } else {
+            return [];
+          }
         } else if (actionToDo === TreeComparator.COMPARE_POLICY_REPLACE) {
           return [{
             mode: TreeComparator.PATCH_REPLACE_NODE,
@@ -1164,7 +1141,7 @@ var TreeComparator = function () {
 
       if (node1 !== null && node1.tagName === node2.tagName && node1.nodeType === node2.nodeType) {
         // equal tagName and nodeType, compare children...
-        if (node1.childNodes.length > 0 || node2.childNodes.length > 0) {
+        if (node1.hasChildNodes() || node2.hasChildNodes()) {
           TreeComparator._compareChildren(node1, node2, comparePolicy, result);
         }
       } else {
@@ -1221,7 +1198,7 @@ var TreeComparator = function () {
           var key2 = child2.getAttribute('key'); // maybe null (no-key)
 
           if (key1 !== key2) {
-            if (key1 in node2Keys && key2 in node1Keys) {
+            if (node2Keys[key1] !== undefined && node1Keys[key2] !== undefined) {
 
               //both nodes are in the initial and final result, so we only need to swap them
               result.push({
@@ -1236,7 +1213,7 @@ var TreeComparator = function () {
               node1ChildNodes[node1Keys[key2].pos] = temp;
             } else {
               //both nodes are NOT in the initial and final result
-              if (!(key2 in node1Keys)) {
+              if (node1Keys[key2] === undefined) {
                 // if a key element in the new result is missing in the current tree, we should insert it
                 result.push({
                   mode: TreeComparator.PATCH_INSERT_NODE,
@@ -1248,7 +1225,7 @@ var TreeComparator = function () {
                 child2pos++;
               }
               // and if a key element in the current result is missing in the new result, we should remove it
-              if (!(key1 in node2Keys)) {
+              if (node2Keys[key1] === undefined) {
                 result.push({
                   mode: TreeComparator.PATCH_REMOVE_NODE,
                   toReplace: child1
@@ -1339,6 +1316,10 @@ var TreeComparator = function () {
   }, {
     key: '_equalAttributes',
     value: function _equalAttributes(node1, node2) {
+      if (!node1.hasChildNodes() && !node2.hasChildNodes()) {
+        return node1.isEqualNode(node2);
+      }
+
       if (!node1.attributes && !node2.attributes) {
         return true;
       }
@@ -1346,8 +1327,6 @@ var TreeComparator = function () {
       if (!node1.attributes && node2.attributes || node1.attributes && !node2.attributes) {
         return false;
       }
-
-      //TODO: receive this id as paremeter
 
       if (node1.attributes.length !== node2.attributes.length) {
         return false;
@@ -1384,6 +1363,9 @@ var TreeComparator = function () {
         var patch = patches[i];
         if (patchMapping !== undefined) {
           patch = patchMapping(patch);
+          if (patch === null) {
+            continue;
+          }
         }
         // HTML nodes
         var toReplace = patch.toReplace;
@@ -1391,15 +1373,17 @@ var TreeComparator = function () {
         switch (patch.mode) {
           case TreeComparator.PATCH_SET_ATTRIBUTES:
             var attribute = null;
-            for (var _i2 = 0; _i2 < replacement.attributes.length; _i2++) {
-              attribute = replacement.attributes[_i2];
+            for (var _i = 0; _i < replacement.attributes.length; _i++) {
+              attribute = replacement.attributes[_i];
               if (attribute.name === 'value' && toReplace.value != attribute.value) {
                 toReplace.value = attribute.value;
               }
               if (attribute.name === 'checked') {
                 toReplace.checked = attribute.checked !== false ? true : false;
               }
-              toReplace.setAttribute(attribute.name, attribute.value);
+              if (!toReplace.hasAttribute(attribute.name) || toReplace.getAttribute(attribute.name) !== attribute.value) {
+                toReplace.setAttribute(attribute.name, attribute.value);
+              }
             }
 
             for (var j = toReplace.attributes.length - 1; j >= 0; j--) {
@@ -1423,7 +1407,7 @@ var TreeComparator = function () {
             patch.toReplace.appendChild(patch.replacement);
             break;
           case TreeComparator.PATCH_INSERT_NODE:
-            if (patch.toReplace.childNodes.length === 0) {
+            if (!patch.toReplace.hasChildNodes()) {
               patch.toReplace.appendChild(patch.replacement);
             } else {
               patch.toReplace.insertBefore(patch.replacement, patch.toReplace.childNodes[patch.beforePos]);
@@ -1453,6 +1437,7 @@ TreeComparator.PATCH_SET_ATTRIBUTES = 6;
 TreeComparator.COMPARE_POLICY_SKIP = 0;
 TreeComparator.COMPARE_POLICY_REPLACE = 1;
 TreeComparator.COMPARE_POLICY_DIFF = 2;
+TreeComparator.COMPARE_POLICY_ATTRIBUTES = 3;
 /**
  * A Model is a general-purpose, observable object, holding user specific data.
  *
@@ -1621,26 +1606,10 @@ var ModelComponent = function (_Component) {
       return modelRenderer(_this5._mergeModelInOneObject());
     }, htmlNodeId, childTags));
 
-    if (!model) {
-      /**
-       * The models this ModelComponent is handling
-       * @type {Array.<Model>}
-       */
-      _this5.models = [];
-    } else if (model instanceof Model) {
-      _this5.models = [model];
-    } else if (model instanceof Array) {
+    _this5.models = {};
 
-      for (var i = 0; i < model.length; i++) {
-        var modelItem = model[i];
-        if (!(modelItem instanceof Model)) {
-          throw 'Component [' + _this5.htmlNodeId + ']: the model must inherit Model';
-        }
-      }
-
-      _this5.models = model;
-    } else {
-      throw 'Component [' + _this5.htmlNodeId + ']: the model must inherit Model';
+    if (model !== null && model !== undefined) {
+      _this5.models['default'] = model;
     }
 
     _this5.updater = _this5.update.bind(_this5); // the update function bound to this
@@ -1648,15 +1617,51 @@ var ModelComponent = function (_Component) {
   }
 
   /**
-   * The observer function added to all models this ModelComponent manages.<br>
-   * This function simply calls {@link ModelComponent#render|render}, but
-   * you can override it.
+   * Adds a secondary model to this model component.
    *
-   * @param {Model} model The model that has been updated.
+   * <p>ModelComponents can have more than one model. The model passed in the
+   * constructor is the 'default' model. Additional models must have a name.
+   * When the modelRenderer function is called, the passed object to the function
+   * will contain the 'default' model itself and all the additional models under 
+   * their respective names. For example, a code like:</p>
+   * <pre><code>
+   * var myModel = new Fronty.Model();
+   * myModel.value = 'foo';
+   * var mySecondaryModel = new Fronty.Model();
+   * mySecondaryModel.value = 'bar';
+   * var myModelComponent = new Fronty.ModelComponent(..., myModel, ...);
+   * myModelComponent.addModel('secondary', mySecondaryModel);
+   * </code></pre>
+   * will pass the following object to the model renderer function:
+   * <pre>
+   * <code>
+   * {
+   *    value: 'foo',
+   *    secondary: {
+   *        value: 'bar'
+   *    }
+   * }
+   * </code></pre>
+   * @param {String} modelName The name for the additional model
+   * @param {Model} model The additonal model
    */
 
 
   _createClass(ModelComponent, [{
+    key: 'addModel',
+    value: function addModel(modelName, model) {
+      this.models[modelName] = model;
+    }
+
+    /**
+     * The observer function added to all models this ModelComponent manages.<br>
+     * This function simply calls {@link ModelComponent#render|render}, but
+     * you can override it.
+     *
+     * @param {Model} model The model that has been updated.
+     */
+
+  }, {
     key: 'update',
     value: function update(model) {
       //console.log('Component [#' + this.htmlNodeId + ']: received update from Model [' + model.name + ']');
@@ -1670,9 +1675,10 @@ var ModelComponent = function (_Component) {
     value: function stop() {
 
       if (this.stopped === false) {
-        for (var i = 0; i < this.models.length; i++) {
-          var model = this.models[i];
-          model.removeObserver(this.updater);
+        for (var modelName in this.models) {
+          if (this.models.hasOwnProperty(modelName)) {
+            this.models[modelName].removeObserver(this.updater);
+          }
         }
       }
       _get(ModelComponent.prototype.__proto__ || Object.getPrototypeOf(ModelComponent.prototype), 'stop', this).call(this);
@@ -1680,21 +1686,47 @@ var ModelComponent = function (_Component) {
   }, {
     key: 'start',
     value: function start() {
+
       if (this.stopped) {
-        for (var i = 0; i < this.models.length; i++) {
-          var model = this.models[i];
-          model.addObserver(this.updater);
+        for (var modelName in this.models) {
+          if (this.models.hasOwnProperty(modelName)) {
+            this.models[modelName].addObserver(this.updater);
+          }
         }
       }
       _get(ModelComponent.prototype.__proto__ || Object.getPrototypeOf(ModelComponent.prototype), 'start', this).call(this);
+    }
+
+    /**
+     * Sets the model for this ModelComponent.
+     *
+     * <p>The component will be re-rendered</p>
+     *
+     * @param {Model|Array<Model>} model The model(s) to be set.
+     */
+
+  }, {
+    key: 'setModel',
+    value: function setModel(model) {
+      var modelName = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : 'default';
+
+      this.models[modelName].removeObserver(this.updater);
+      this.models[modelName] = model;
+      this.models[modelName].addObserver(this.updater);
+      this.render();
     }
   }, {
     key: '_mergeModelInOneObject',
     value: function _mergeModelInOneObject() {
       var context = {};
-      for (var i = 0; i < this.models.length; i++) {
-        var model = this.models[i];
-        context = Object.assign(context, model);
+      var modelNames = Object.keys(this.models);
+      for (var i = 0; i < modelNames.length; i++) {
+        var modelName = modelNames[i];
+        if (modelName === 'default') {
+          context = Object.assign(context, this.models['default']);
+        } else {
+          context[modelName] = this.models[modelName];
+        }
       }
       return context;
     }
@@ -1719,26 +1751,27 @@ var ModelComponent = function (_Component) {
   }, {
     key: 'createChildComponent',
     value: function createChildComponent(className, element, id) {
-      var oneModelObject = this._mergeModelInOneObject();
-
       var modelAtt = element.getAttribute('model');
-      var modelItem = null;
-      if (modelAtt.indexOf('(') === -1) {
-        // for simple expressions, do not use eval (slower)
-        // navigate the object graph manually
-        modelItem = oneModelObject;
-        var arr = modelAtt.split(/[.\[\]]/);
-        while (arr.length) {
-          var elem = arr.shift();
-          if (elem.length !== 0) {
-            modelItem = modelItem[elem];
-          }
-        }
-      } else {
-        // complex including (), use eval
-        modelItem = eval('oneModelObject.' + element.getAttribute('model')); //jshint ignore:line
+
+      var modelItem = this._evaluateModelAttribute(modelAtt);
+
+      var newComponent = this.createChildModelComponent(className, element, id, modelItem);
+
+      newComponent.modelItemFromAttribute = modelItem;
+
+      return newComponent;
+    }
+  }, {
+    key: 'updateChildComponent',
+    value: function updateChildComponent(className, element, nodeId, bufferedParsingService) {
+      var component = this.getChildComponent(nodeId);
+      var currentModel = component.modelItemFromAttribute;
+      var modelAtt = element.getAttribute('model');
+      var modelItem = this._evaluateModelAttribute(modelAtt);
+      if (currentModel !== modelItem) {
+        component.setModel(modelItem);
+        component.modelItemFromAttribute = modelItem;
       }
-      return this.createChildModelComponent(className, element, id, modelItem);
     }
 
     /**
@@ -1762,6 +1795,31 @@ var ModelComponent = function (_Component) {
       if (constructorFunction instanceof Function) {
         return new constructorFunction(id, modelItem);
       }
+    }
+
+    // "private"
+
+  }, {
+    key: '_evaluateModelAttribute',
+    value: function _evaluateModelAttribute(modelAtt) {
+      var oneModelObject = this._mergeModelInOneObject();
+      var modelItem = null;
+      if (modelAtt.indexOf('(') === -1) {
+        // for simple expressions, do not use eval (slower)
+        // navigate the object graph manually
+        modelItem = oneModelObject;
+        var arr = modelAtt.split(/[.\[\]]/);
+        while (arr.length) {
+          var elem = arr.shift();
+          if (elem.length !== 0) {
+            modelItem = modelItem[elem];
+          }
+        }
+      } else {
+        // complex including (), use eval
+        modelItem = eval('oneModelObject.' + element.getAttribute('model')); //jshint ignore:line
+      }
+      return modelItem;
     }
   }]);
 
@@ -1823,15 +1881,16 @@ var RouterComponent = function (_ModelComponent) {
     // add a routerModel to the given model(s), creating an array
     var routerModel = new Model('RouterModel');
 
-    if (model instanceof Array) {
-      model.push(routerModel);
-    } else if (model !== null && model !== undefined) {
-      model = [routerModel, model];
+    var additionalModels = {};
+    if (model !== null && model !== undefined) {
+      model = model;
     } else {
-      model = routerModel;
+      model = new Model('empty-model');
     }
 
-    var _this6 = _possibleConstructorReturn(this, (RouterComponent.__proto__ || Object.getPrototypeOf(RouterComponent)).call(this, modelRenderer, model, rootHtmlId));
+    var _this6 = _possibleConstructorReturn(this, (RouterComponent.__proto__ || Object.getPrototypeOf(RouterComponent)).call(this, modelRenderer, model, rootHtmlId, []));
+
+    _get(RouterComponent.prototype.__proto__ || Object.getPrototypeOf(RouterComponent.prototype), 'addModel', _this6).call(_this6, 'router', routerModel);
 
     _this6._routerModel = routerModel;
     _this6.routes = {};
@@ -1979,7 +2038,7 @@ var RouterComponent = function (_ModelComponent) {
       if (currentPage) {
 
         // get page component and update the main body element
-        if (currentPage in this.routes) {
+        if (this.routes[currentPage] !== undefined) {
           if (this.routes[currentPage].title) {
             document.title = this.routes[currentPage].title;
           }
@@ -1995,10 +2054,10 @@ var RouterComponent = function (_ModelComponent) {
           this.currentComponent.setHtmlNodeId(this.pageHtmlId);
 
           this.addChildComponent(this.currentComponent);
-          this.routes[currentPage].component.start();
+          //this.routes[currentPage].component.start();
         } else {
-          //console.log('Router undefined page ' + currentPage);
-        }
+            //console.log('Router undefined page ' + currentPage);
+          }
       } else {
           //console.log('Router: no default page defined');
         }

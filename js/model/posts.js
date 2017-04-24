@@ -5,8 +5,6 @@ class PostsModel extends Fronty.Model {
 
     // model attributes
     this.posts = [];
-    //this.hello = 'hola';
-
   }
 
   setSelectedPost(post) {
