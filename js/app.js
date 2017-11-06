@@ -16,7 +16,7 @@ function loadTextFile(url) {
 
 // Configuration
 var AppConfig = {
-  backendServer: 'http://localhost/mvcblog'
+  backendServer: 'http://localhost'
   //backendServer: '/mvcblog'
 }
 
