@@ -1,9 +1,11 @@
 class PostsComponent extends Fronty.ModelComponent {
   constructor(postsModel, userModel, router) {
-    super(Handlebars.templates.poststable, postsModel, null, null, {'user':userModel});
-
+    super(Handlebars.templates.poststable, postsModel, null, null);
+    
+    
     this.postsModel = postsModel;
     this.userModel = userModel;
+    this.addModel('user', userModel);
     this.router = router;
 
     this.postsService = new PostsService();
