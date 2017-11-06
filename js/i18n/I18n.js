@@ -31,7 +31,7 @@ class I18n {
     }
 
     if (getCookie('language') !== '') {
-      return $.get(messagesBasePath + '/' + getCookie('language') + "_messages.js").then((source) => eval(source));
+      return $.get(messagesBasePath + '/' + getCookie('language') + "_messages.js", null, null, 'text').then((source) => eval(source));
     } else {
       return new Promise((resolve, reject) => resolve());
     }
@@ -46,7 +46,7 @@ class I18n {
     }
 
     function deleteCookie(cname) {
-      document.cookie = cname + '=;expires=Thu, 01 Jan 1970 00:00:01 GMT;';
+      document.cookie = cname + '=;expires=Thu, 01 Jan 1970 00:00:01 GMT;path=/';
     }
 
     if (languageKey === 'default') {
