@@ -41,13 +41,13 @@ class UserService {
           });
           resolve();
         })
-        .fail(() => {
+        .fail((error) => {
           window.sessionStorage.removeItem('login');
           window.sessionStorage.removeItem('pass');
           $.ajaxSetup({
             beforeSend: (xhr) => {}
           });
-          reject();
+          reject(error);
         });
     });
   }

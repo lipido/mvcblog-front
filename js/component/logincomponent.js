@@ -11,7 +11,10 @@ class LoginComponent extends Fronty.ModelComponent {
           this.router.goToPage('posts');
           this.userModel.setLoggeduser($('#login').val());
         })
-        .catch(() => {
+        .catch((error) => {
+          this.userModel.set((model) => {
+            model.loginError = error.responseText;
+          });
           this.userModel.logout();
         });
     });

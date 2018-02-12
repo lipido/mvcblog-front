@@ -30,6 +30,7 @@ I18n.translations = {
   'edit': 'editar',
   'logout': 'cerrar sesión',
   'Login': 'Iniciar sesión',
-  'Username': 'Usuario'
+  'Username': 'Usuario',
+  'The username/password is not valid': 'El nombre de usuario/contraseña no son válidos'
 
 }
