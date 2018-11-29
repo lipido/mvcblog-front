@@ -4,58 +4,63 @@ class MainComponent extends Fronty.RouterComponent {
 
     // models instantiation
     // we can instantiate models at any place
-    var userModel = new UserModel();
-    var postsModel = new PostsModel();
+    this.userModel = new UserModel();
+    this.postsModel = new PostsModel();
+    this.userService = new UserService();
 
     super.setRouterConfig({
       posts: {
-        component: new PostsComponent(postsModel, userModel, this),
+        component: new PostsComponent(this.postsModel, this.userModel, this),
         title: 'Posts'
       },
       'view-post': {
-        component: new PostViewComponent(postsModel, userModel, this),
+        component: new PostViewComponent(this.postsModel, this.userModel, this),
         title: 'Post'
       },
       'edit-post': {
-        component: new PostEditComponent(postsModel, userModel, this),
+        component: new PostEditComponent(this.postsModel, this.userModel, this),
         title: 'Edit Post'
       },
       'add-post': {
-        component: new PostAddComponent(postsModel, userModel, this),
+        component: new PostAddComponent(this.postsModel, this.userModel, this),
         title: 'Add Post'
       },
       login: {
-        component: new LoginComponent(userModel, this),
+        component: new LoginComponent(this.userModel, this),
         title: 'Login'
       },
       defaultRoute: 'posts'
     });
-    
+
     Handlebars.registerHelper('currentPage', () => {
           return super.getCurrentPage();
     });
 
-    var userService = new UserService();
-    this.addChildComponent(this._createUserBarComponent(userModel, userService));
+    this.addChildComponent(this._createUserBarComponent());
     this.addChildComponent(this._createLanguageComponent());
 
   }
 
-  _createUserBarComponent(userModel, userService) {
-    var userbar = new Fronty.ModelComponent(Handlebars.templates.user, userModel, 'userbar');
+  start() {
+    // override the start() function in order to first check if there is a logged user
+    // in sessionStorage, so we try to do a relogin and start the main component
+    // only when login is checked
+    this.userService.loginWithSessionData()
+      .then((logged) => {
+        if (logged != null) {
+          this.userModel.setLoggeduser(logged);
+        }
+        super.start(); // now we can call start
+      });
+  }
+
+  _createUserBarComponent() {
+    var userbar = new Fronty.ModelComponent(Handlebars.templates.user, this.userModel, 'userbar');
 
     userbar.addEventListener('click', '#logoutbutton', () => {
-      userModel.logout();
-      userService.logout();
+      this.userModel.logout();
+      this.userService.logout();
     });
-
-    // do relogin
-    userService.loginWithSessionData()
-      .then(function(logged) {
-        if (logged != null) {
-          userModel.setLoggeduser(logged);
-        }
-      });
 
     return userbar;
   }
