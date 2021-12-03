@@ -32,6 +32,6 @@ A quick installation process could be:
 1. Download and install [mvcblog](https://github.com/lipido/mvcblog), the
    backend-app (you will need a PHP-enabled server and MySQL).
 2. Download
-[mvcblog-front](https://github.com/lipido/mvcblog/archive/master.zip) and copy
+[mvcblog-front](https://github.com/lipido/mvcblog-front/archive/master.zip) and copy
 it inside the backend app, for example in `/frontend`.
 3. Start your server and access it: http://localhost/mvcblog/frontend/index.html.
