@@ -6,7 +6,9 @@ function loadTextFile(url) {
     $.get({
       url: url,
       cache: true,
-      dataType: 'text'
+      beforeSend: function( xhr ) {
+        xhr.overrideMimeType( "text/plain; charset=x-user-defined" );
+      }
     }).then((source) => {
       resolve(source);
     }).fail(() => reject());
