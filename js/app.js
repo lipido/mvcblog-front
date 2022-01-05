@@ -7,7 +7,7 @@ function loadTextFile(url) {
       url: url,
       cache: true,
       beforeSend: function( xhr ) {
-        xhr.overrideMimeType( "text/plain; charset=x-user-defined" );
+        xhr.overrideMimeType( "text/plain" );
       }
     }).then((source) => {
       resolve(source);
