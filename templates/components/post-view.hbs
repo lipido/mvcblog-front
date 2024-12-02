@@ -11,7 +11,7 @@
       <hr>
     {{/each}}
   </div>
-  {{#if isLogged}}
+  {{#if user.isLogged}}
     <h2>{{i18n 'Leave a comment'}}</h2>
     <div>
       <textarea rows="4" cols="20" id="commentcontent"></textarea>{{commentErrors.content}}
